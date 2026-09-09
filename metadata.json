@@ -1,0 +1,6 @@
+{
+  "name": "Roblox Avatar Searcher",
+  "description": "Search Roblox avatars and catalog items, try on accessories in real-time, copy item IDs and names, open directly in Roblox, and backup saved outfits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
