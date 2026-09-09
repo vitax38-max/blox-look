@@ -11,6 +11,8 @@ import { TryOnStudioModal } from "./components/TryOnStudioModal";
 import { AIStylistModal } from "./components/AIStylistModal";
 import { FavoritesDrawer } from "./components/FavoritesDrawer";
 import { DataBackupModal } from "./components/DataBackupModal";
+import { RealFitCostModal } from "./components/RealFitCostModal";
+import { AccountPermissionsModal } from "./components/AccountPermissionsModal";
 import {
   RobloxUserDetail,
   RobloxThumbnails,
@@ -20,6 +22,7 @@ import {
   ConnectedRobloxAccount,
   SavedCustomFit,
   AppBackupData,
+  AccountPermissions,
 } from "./types";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 
@@ -98,6 +101,8 @@ export default function App() {
   const [isAIStylistModalOpen, setIsAIStylistModalOpen] = useState(false);
   const [isFavoritesDrawerOpen, setIsFavoritesDrawerOpen] = useState(false);
   const [isDataBackupModalOpen, setIsDataBackupModalOpen] = useState(false);
+  const [isRealFitCostModalOpen, setIsRealFitCostModalOpen] = useState(false);
+  const [isAccountPermissionsModalOpen, setIsAccountPermissionsModalOpen] = useState(false);
 
   // Save to localStorage
   useEffect(() => {
@@ -324,11 +329,32 @@ export default function App() {
     localStorage.removeItem("bloxlook_connected_account");
   };
 
-  // Total Robux calculation
+  // Update connected account permissions and sync local state
+  const handleUpdatePermissions = (newPermissions: AccountPermissions) => {
+    if (connectedAccount) {
+      const updated = {
+        ...connectedAccount,
+        permissions: newPermissions,
+      };
+      setConnectedAccount(updated);
+      if (currentUser && currentUser.id === connectedAccount.user.id && avatarData) {
+        setAvatarData({
+          ...avatarData,
+          permissions: newPermissions,
+        });
+      }
+    }
+  };
+
+  const isOwnerConnected =
+    !!connectedAccount && !!currentUser && connectedAccount.user.id === currentUser.id;
+
+  // Real Fit Cost calculation (including live resale prices on limiteds)
   const totalRobux =
+    avatarData?.fitCostBreakdown?.totalRealRobux ??
     avatarData?.assets.reduce((sum, item) => {
-      return sum + (typeof item.price === "number" ? item.price : 0);
-    }, 0) || 0;
+      return sum + (item.realPrice ?? (typeof item.price === "number" ? item.price : 0));
+    }, 0) ?? 0;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-red-500 selection:text-white">
@@ -344,6 +370,7 @@ export default function App() {
         onOpenAIStylist={() => setIsAIStylistModalOpen(true)}
         onOpenDataBackup={() => setIsDataBackupModalOpen(true)}
         onLoadMyAvatar={handleLoadMyAvatar}
+        onOpenPermissions={() => setIsAccountPermissionsModalOpen(true)}
         favoritesCount={favorites.length + savedCustomFits.length}
         hasLoadedUser={!!currentUser && !!avatarData}
         tryOnCount={tryOnItems.length}
@@ -405,6 +432,11 @@ export default function App() {
                   onOpenAIStylist={() => setIsAIStylistModalOpen(true)}
                   onOpenTryOn={() => setIsTryOnModalOpen(true)}
                   totalRobux={totalRobux}
+                  breakdown={avatarData?.fitCostBreakdown || null}
+                  onOpenCostBreakdown={() => setIsRealFitCostModalOpen(true)}
+                  permissions={avatarData?.permissions || (isOwnerConnected ? connectedAccount?.permissions : null)}
+                  isOwnerConnected={isOwnerConnected}
+                  onOpenPermissions={() => setIsAccountPermissionsModalOpen(true)}
                 />
 
                 {/* Worn Assets & Wardrobe */}
@@ -414,6 +446,9 @@ export default function App() {
                       assets={avatarData.assets}
                       onTryOnItem={handleTryOnItem}
                       triedOnAssetIds={tryOnItems.map((i) => i.id)}
+                      fitCostBreakdown={avatarData.fitCostBreakdown || null}
+                      onOpenCostBreakdown={() => setIsRealFitCostModalOpen(true)}
+                      allowInspection={isOwnerConnected || avatarData.permissions?.allowOutfitInspection !== false}
                     />
 
                     {/* Body Colors & Scales */}
@@ -518,6 +553,30 @@ export default function App() {
         recentSearches={recentSearches}
         onRestoreData={handleRestoreData}
         onClearAllData={handleClearAllData}
+      />
+
+      {/* Real Fit Cost Modal */}
+      {currentUser && (
+        <RealFitCostModal
+          isOpen={isRealFitCostModalOpen}
+          onClose={() => setIsRealFitCostModalOpen(false)}
+          user={currentUser}
+          assets={avatarData?.assets || []}
+          breakdown={avatarData?.fitCostBreakdown || null}
+          onTryOnItem={handleTryOnItem}
+          onOpenTryOnStudio={() => {
+            setIsRealFitCostModalOpen(false);
+            setIsTryOnModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Account Privacy & Permissions Modal */}
+      <AccountPermissionsModal
+        isOpen={isAccountPermissionsModalOpen}
+        onClose={() => setIsAccountPermissionsModalOpen(false)}
+        connectedAccount={connectedAccount}
+        onSavePermissions={handleUpdatePermissions}
       />
     </div>
   );

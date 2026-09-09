@@ -100,6 +100,52 @@ async function fetchDirectUser(username: string) {
   return null;
 }
 
+// In-memory store for account permissions
+interface ServerAccountPermissions {
+  allowPublicView: boolean;
+  showFitCost: boolean;
+  allowOutfitInspection: boolean;
+  allowTryOnMyFits: boolean;
+  showOnlineStatus: boolean;
+  showBioNote: boolean;
+  customBioNote: string;
+  anonymousMode: boolean;
+}
+
+const userPermissionsMap = new Map<number, ServerAccountPermissions>();
+
+let robloxCsrfToken: string = "";
+
+async function fetchWithRobloxCsrf(url: string, bodyJson: any) {
+  let headers: Record<string, string> = {
+    ...ROBLOX_HEADERS,
+    "Content-Type": "application/json",
+  };
+  if (robloxCsrfToken) {
+    headers["x-csrf-token"] = robloxCsrfToken;
+  }
+
+  let res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(bodyJson),
+  });
+
+  if (res.status === 403) {
+    const newToken = res.headers.get("x-csrf-token");
+    if (newToken) {
+      robloxCsrfToken = newToken;
+      headers["x-csrf-token"] = newToken;
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bodyJson),
+      });
+    }
+  }
+  return res;
+}
+
 // Lookup by exact username or ID
 app.get("/api/roblox/user-lookup", async (req: Request, res: Response) => {
   const query = (req.query.q as string || "").trim();
@@ -271,13 +317,11 @@ app.get("/api/roblox/avatar/:userId", async (req: Request, res: Response) => {
         console.warn("Asset thumbnail batch error:", err);
       }
 
-      // Enrich assets with price & catalog data via catalog API
+      // Enrich assets with price & catalog data via catalog API with CSRF handling
       try {
-        const catalogItems = assetIds.slice(0, 30).map(id => ({ itemType: "Asset", id }));
-        const catalogRes = await fetch("https://catalog.roblox.com/v1/catalog/items/details", {
-          method: "POST",
-          headers: { ...ROBLOX_HEADERS, "Content-Type": "application/json" },
-          body: JSON.stringify({ items: catalogItems })
+        const catalogItems = assetIds.slice(0, 100).map(id => ({ itemType: 1, id }));
+        const catalogRes = await fetchWithRobloxCsrf("https://catalog.roblox.com/v1/catalog/items/details", {
+          items: catalogItems
         });
         if (catalogRes.ok) {
           const catalogData = await catalogRes.json();
@@ -285,13 +329,42 @@ app.get("/api/roblox/avatar/:userId", async (req: Request, res: Response) => {
           for (const asset of assets) {
             const cat: any = itemMap.get(asset.id);
             if (cat) {
-              asset.price = cat.price !== undefined ? cat.price : (cat.lowestPrice || null);
-              asset.creatorName = cat.creatorName;
+              const isLimited = (cat.itemRestrictions || []).includes("Limited") || (cat.itemRestrictions || []).includes("LimitedUnique");
+              const isLimitedUnique = (cat.itemRestrictions || []).includes("LimitedUnique");
+              const lowestResale = cat.lowestResalePrice ?? cat.lowestPrice ?? null;
+              const originalPrice = cat.price !== undefined && cat.price !== null ? cat.price : null;
+
+              asset.price = originalPrice;
+              asset.lowestPrice = cat.lowestPrice ?? null;
+              asset.lowestResalePrice = lowestResale;
+              asset.creatorName = cat.creatorName || asset.creatorName;
               asset.creatorType = cat.creatorType;
-              asset.isLimited = (cat.itemRestrictions || []).includes("Limited") || (cat.itemRestrictions || []).includes("LimitedUnique");
-              asset.isLimitedUnique = (cat.itemRestrictions || []).includes("LimitedUnique");
-              asset.isForSale = cat.priceStatus !== "Off Sale";
+              asset.isLimited = isLimited;
+              asset.isLimitedUnique = isLimitedUnique;
+              asset.isForSale = !cat.isOffSale && cat.priceStatus !== "Off Sale";
               asset.itemRestrictions = cat.itemRestrictions || [];
+              asset.favoriteCount = cat.favoriteCount || 0;
+
+              // Compute realPrice and priceType for each worn item
+              if (isLimited && lowestResale) {
+                asset.realPrice = lowestResale;
+                asset.priceType = "resale";
+              } else if (originalPrice === 0) {
+                asset.realPrice = 0;
+                asset.priceType = "free";
+              } else if (originalPrice !== null && originalPrice > 0 && asset.isForSale) {
+                asset.realPrice = originalPrice;
+                asset.priceType = "retail";
+              } else if (cat.isOffSale || cat.priceStatus === "Off Sale") {
+                asset.realPrice = originalPrice || 0;
+                asset.priceType = "off_sale";
+              } else {
+                asset.realPrice = originalPrice || 0;
+                asset.priceType = "retail";
+              }
+            } else {
+              asset.realPrice = asset.price || 0;
+              asset.priceType = asset.price ? "retail" : "off_sale";
             }
           }
         }
@@ -300,6 +373,48 @@ app.get("/api/roblox/avatar/:userId", async (req: Request, res: Response) => {
       }
     }
 
+    // Compute Fit Cost Breakdown
+    let totalRealRobux = 0;
+    let retailRobux = 0;
+    let resaleRobux = 0;
+    let retailItemsCount = 0;
+    let limitedItemsCount = 0;
+    let freeItemsCount = 0;
+    let offSaleItemsCount = 0;
+
+    for (const asset of assets) {
+      const rp = typeof asset.realPrice === "number" ? asset.realPrice : (asset.price || 0);
+      if (asset.isLimited) {
+        limitedItemsCount++;
+        resaleRobux += rp;
+        totalRealRobux += rp;
+      } else if (asset.priceType === "free" || rp === 0 && asset.isForSale) {
+        freeItemsCount++;
+      } else if (asset.priceType === "off_sale" || !asset.isForSale) {
+        offSaleItemsCount++;
+        totalRealRobux += rp;
+      } else {
+        retailItemsCount++;
+        retailRobux += rp;
+        totalRealRobux += rp;
+      }
+    }
+
+    const fitCostBreakdown = {
+      totalRealRobux,
+      retailRobux,
+      resaleRobux,
+      retailItemsCount,
+      limitedItemsCount,
+      freeItemsCount,
+      offSaleItemsCount,
+      usdEstimatedMin: Math.round(totalRealRobux * 0.0035 * 100) / 100, // DevEx rate ~$0.0035 / R$
+      usdEstimatedMax: Math.round(totalRealRobux * 0.0125 * 100) / 100, // Retail rate ~$0.0125 / R$
+    };
+
+    // Check account permissions for this user
+    const permissions = userPermissionsMap.get(Number(userId)) || null;
+
     res.json({
       scales: rawAvatar.scales,
       playerAvatarType: rawAvatar.playerAvatarType || "R15",
@@ -307,12 +422,49 @@ app.get("/api/roblox/avatar/:userId", async (req: Request, res: Response) => {
       assets,
       defaultShirtApplied: rawAvatar.defaultShirtApplied,
       defaultPantsApplied: rawAvatar.defaultPantsApplied,
-      emotes: rawAvatar.emotes || []
+      emotes: rawAvatar.emotes || [],
+      fitCostBreakdown,
+      permissions
     });
   } catch (err: any) {
     console.error("Avatar fetch error:", err);
     res.status(500).json({ error: "Failed to fetch avatar details", message: err.message });
   }
+});
+
+// Account Permissions API
+app.get("/api/roblox/account/permissions/:userId", (req: Request, res: Response) => {
+  const userId = Number(req.params.userId);
+  const permissions = userPermissionsMap.get(userId) || {
+    allowPublicView: true,
+    showFitCost: true,
+    allowOutfitInspection: true,
+    allowTryOnMyFits: true,
+    showOnlineStatus: true,
+    showBioNote: false,
+    customBioNote: "",
+    anonymousMode: false
+  };
+  res.json({ permissions });
+});
+
+app.post("/api/roblox/account/permissions", (req: Request, res: Response) => {
+  const { userId, permissions } = req.body;
+  if (!userId || !permissions) {
+    return res.status(400).json({ error: "userId and permissions are required" });
+  }
+  const cleanPermissions: ServerAccountPermissions = {
+    allowPublicView: permissions.allowPublicView !== false,
+    showFitCost: permissions.showFitCost !== false,
+    allowOutfitInspection: permissions.allowOutfitInspection !== false,
+    allowTryOnMyFits: permissions.allowTryOnMyFits !== false,
+    showOnlineStatus: permissions.showOnlineStatus !== false,
+    showBioNote: !!permissions.showBioNote,
+    customBioNote: (permissions.customBioNote || "").slice(0, 150),
+    anonymousMode: !!permissions.anonymousMode
+  };
+  userPermissionsMap.set(Number(userId), cleanPermissions);
+  res.json({ success: true, permissions: cleanPermissions });
 });
 
 // Get User Public Outfits
@@ -351,7 +503,9 @@ app.get("/api/roblox/catalog/search", async (req: Request, res: Response) => {
   const { keyword, category, subcategory, sortType, cursor, limit } = req.query;
   const searchTerm = (typeof keyword === "string" ? keyword : "").trim();
   const searchCategory = (typeof category === "string" && category ? category : "All");
-  const searchLimit = limit ? Math.min(Number(limit), 30) : 30;
+  const ALLOWED_LIMITS = [10, 28, 30, 60, 120];
+  const parsedLimit = limit ? Number(limit) : 30;
+  const searchLimit = ALLOWED_LIMITS.includes(parsedLimit) ? parsedLimit : 30;
 
   try {
     // If the search term is a purely numeric asset ID, attempt direct asset resolution first
@@ -739,9 +893,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Roblox Avatar Searcher server listening on port ${PORT}`);
   });
+
+  const shutdown = () => {
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

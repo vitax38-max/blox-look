@@ -25,12 +25,17 @@ export interface RobloxAsset {
   };
   thumbnailUrl?: string;
   price?: number | null;
+  lowestPrice?: number | null;
+  lowestResalePrice?: number | null;
+  realPrice?: number;
+  priceType?: 'retail' | 'resale' | 'free' | 'off_sale';
   isForSale?: boolean;
   isLimited?: boolean;
   isLimitedUnique?: boolean;
   creatorName?: string;
   creatorType?: string;
   itemRestrictions?: string[];
+  favoriteCount?: number;
 }
 
 export interface RobloxBodyColors {
@@ -91,12 +96,36 @@ export interface AvatarAIReview {
   estimatedTotalRobux: number;
 }
 
+export interface FitCostBreakdown {
+  totalRealRobux: number;
+  retailRobux: number;
+  resaleRobux: number;
+  retailItemsCount: number;
+  limitedItemsCount: number;
+  freeItemsCount: number;
+  offSaleItemsCount: number;
+  usdEstimatedMin: number; // e.g. DevEx rate: total * 0.0035
+  usdEstimatedMax: number; // e.g. Buy rate: total * 0.0125
+}
+
+export interface AccountPermissions {
+  allowPublicView: boolean; // Allow others to see and search your avatar
+  showFitCost: boolean; // Allow others to see your real fit cost and Robux valuation
+  allowOutfitInspection: boolean; // Allow others to inspect your worn items and asset IDs
+  allowTryOnMyFits: boolean; // Allow others to try on your custom saved outfits
+  showOnlineStatus: boolean; // Show verification badge and connected timestamp
+  showBioNote: boolean; // Show custom showcase message on your profile
+  customBioNote: string; // e.g. "Trading Valkyrie / DM on Discord"
+  anonymousMode: boolean; // Masks avatar name as "Verified Collector" or "Anonymous User"
+}
+
 export interface ConnectedRobloxAccount {
   user: RobloxUser;
   connectedAt: string;
   verificationMethod: 'bio-words' | 'bio-code';
   savedOutfits: SavedCustomFit[];
   favorites: number[]; // User IDs of favorited avatars
+  permissions?: AccountPermissions;
 }
 
 export interface SavedCustomFit {

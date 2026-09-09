@@ -9,15 +9,21 @@ import {
   Filter,
   Sparkles,
   Layers,
-  Code
+  Code,
+  Lock,
+  TrendingUp,
+  ChevronRight
 } from "lucide-react";
-import { RobloxAsset } from "../types";
+import { RobloxAsset, FitCostBreakdown } from "../types";
 import { formatRobux, copyToClipboard, getRobloxCatalogUrl } from "../utils/roblox";
 
 interface WardrobeInspectorProps {
   assets: RobloxAsset[];
   onTryOnItem: (asset: RobloxAsset) => void;
   triedOnAssetIds?: number[];
+  fitCostBreakdown?: FitCostBreakdown | null;
+  onOpenCostBreakdown?: () => void;
+  allowInspection?: boolean;
 }
 
 type FilterCategory = "all" | "accessories" | "clothing" | "body";
@@ -26,11 +32,32 @@ export const WardrobeInspector: React.FC<WardrobeInspectorProps> = ({
   assets,
   onTryOnItem,
   triedOnAssetIds = [],
+  fitCostBreakdown,
+  onOpenCostBreakdown,
+  allowInspection = true,
 }) => {
   const [activeCategory, setActiveCategory] = useState<FilterCategory>("all");
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [copiedBatch, setCopiedBatch] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState("");
+
+  if (!allowInspection) {
+    return (
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-8 text-center backdrop-blur-xl">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800 text-zinc-400 border border-zinc-700">
+            <Lock className="h-6 w-6" />
+          </div>
+          <h2 className="font-display text-lg font-bold text-white">
+            Worn Assets & Wardrobe Hidden
+          </h2>
+          <p className="mt-1 text-xs text-zinc-400 max-w-md mx-auto">
+            The owner of this account has restricted wardrobe inspection. Individual asset IDs and layer details are private.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const categorizeAsset = (asset: RobloxAsset): "accessories" | "clothing" | "body" => {
     const type = (asset.assetType?.name || "").toLowerCase();
@@ -121,8 +148,21 @@ export const WardrobeInspector: React.FC<WardrobeInspectorProps> = ({
             </p>
           </div>
 
-          {/* Batch Export / Copy buttons */}
+          {/* Batch Export / Copy buttons & Real Fit Cost indicator */}
           <div className="flex flex-wrap items-center gap-2">
+            {fitCostBreakdown && onOpenCostBreakdown && (
+              <button
+                id="wardrobe-real-cost-pill-btn"
+                onClick={onOpenCostBreakdown}
+                title="View Real Fit Cost Valuation & Resale Breakdown"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-950/40 px-3 py-1.5 text-xs font-semibold text-amber-300 transition hover:bg-amber-900/60 hover:text-white shadow-sm shadow-amber-500/10"
+              >
+                <TrendingUp className="h-3.5 w-3.5 text-amber-400" />
+                <span>Fit Cost: {fitCostBreakdown.totalRealRobux.toLocaleString()} R$</span>
+                <ChevronRight className="h-3 w-3 text-amber-400/80" />
+              </button>
+            )}
+
             <button
               id="copy-all-ids-btn"
               onClick={handleCopyAllIds}
@@ -246,11 +286,22 @@ export const WardrobeInspector: React.FC<WardrobeInspectorProps> = ({
 
                     {/* Price / Limited badge */}
                     {isLimited ? (
-                      <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                        LIMITED
+                      <span
+                        title={asset.lowestResalePrice ? `Lowest Resale Price: ${asset.lowestResalePrice.toLocaleString()} R$` : "Limited Collectible"}
+                        className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30"
+                      >
+                        {asset.lowestResalePrice
+                          ? `💎 ${asset.lowestResalePrice.toLocaleString()} R$`
+                          : asset.realPrice
+                          ? `💎 ${asset.realPrice.toLocaleString()} R$`
+                          : "LIMITED"}
                       </span>
-                    ) : asset.price !== undefined && asset.price !== null ? (
-                      <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                    ) : asset.priceType === "free" || asset.price === 0 ? (
+                      <span className="rounded-md bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-bold text-cyan-300 border border-cyan-500/30">
+                        Free
+                      </span>
+                    ) : asset.price !== undefined && asset.price !== null && asset.price > 0 ? (
+                      <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30">
                         {formatRobux(asset.price)}
                       </span>
                     ) : (

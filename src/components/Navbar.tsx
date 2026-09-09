@@ -7,7 +7,8 @@ import {
   CheckCircle2,
   LogOut,
   ShoppingBag,
-  Database
+  Database,
+  Shield
 } from "lucide-react";
 import { ConnectedRobloxAccount } from "../types";
 
@@ -22,6 +23,7 @@ interface NavbarProps {
   onOpenAIStylist: () => void;
   onOpenDataBackup: () => void;
   onLoadMyAvatar: () => void;
+  onOpenPermissions: () => void;
   favoritesCount: number;
   hasLoadedUser: boolean;
   tryOnCount: number;
@@ -38,6 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAIStylist,
   onOpenDataBackup,
   onLoadMyAvatar,
+  onOpenPermissions,
   favoritesCount,
   hasLoadedUser,
   tryOnCount,
@@ -189,10 +192,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
 
               <button
+                id="nav-permissions-btn"
+                onClick={onOpenPermissions}
+                title="Account Privacy & Permissions (Fit Cost, Profile Visibility, Inspect, etc.)"
+                className="ml-1 rounded p-1 text-emerald-300 transition hover:bg-emerald-900/60 hover:text-white"
+              >
+                <Shield className="h-3.5 w-3.5" />
+              </button>
+
+              <button
                 id="nav-disconnect-btn"
                 onClick={onDisconnectAccount}
                 title="Disconnect Account"
-                className="ml-1 rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400"
+                className="rounded p-1 text-zinc-400 transition hover:bg-zinc-800 hover:text-red-400"
               >
                 <LogOut className="h-3 w-3" />
               </button>
